@@ -1,0 +1,13 @@
+apply plugin: 'java'
+
+repositories {
+    jcenter()
+    mavenCentral()
+}
+
+dependencies {
+    compile 'org.slf4j:slf4j-api:1.7.21'
+    compile 'com.squareup:javapoet:1.8.0'
+    compile group: 'org.hibernate', name: 'hibernate-core', version: '5.2.8.Final'
+    testCompile 'junit:junit:4.12'
+}
