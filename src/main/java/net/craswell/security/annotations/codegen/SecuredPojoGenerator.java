@@ -34,8 +34,7 @@ import net.craswell.security.annotations.RequiresConfidentiality;
 /**
  * Creates secured POJO classes by looking for the presence of annotations on template classes.
  * 
- * Specifically, this generator looks for the following annotations:
- * &amp;Confidential
+ * Specifically, this generator looks for the following annotations: &amp;Confidential
  * 
  * @author scraswell@gmail.com
  *
@@ -46,7 +45,7 @@ public class SecuredPojoGenerator
    * The suffix to be appended to the template class.
    */
   private static final String SUFFIX = "Secured";
-  
+
   /**
    * The passphrase provider field name.
    */
@@ -60,47 +59,21 @@ public class SecuredPojoGenerator
     return annotationMirror -> {
       TypeName requiresConfidentiality = TypeName.get(RequiresConfidentiality.class);
       TypeName confidential = TypeName.get(Confidential.class);
-      TypeName annotationTypeName = TypeName.get(annotationMirror.getAnnotationType().asElement().asType());
+      TypeName annotationTypeName =
+          TypeName.get(annotationMirror.getAnnotationType().asElement().asType());
 
-      boolean isFilteredAnnotation = requiresConfidentiality.toString().equals(annotationTypeName.toString())
-          || confidential.toString().equals(annotationTypeName.toString());
+      boolean isFilteredAnnotation =
+          requiresConfidentiality.toString().equals(annotationTypeName.toString())
+              || confidential.toString().equals(annotationTypeName.toString());
 
-//      System.out.println(requiresConfidentiality.toString());
-//      System.out.println(confidential.toString());
-//      System.out.println(annotationTypeName.toString());
-//      System.out.println(isFilteredAnnotation);
+      // System.out.println(requiresConfidentiality.toString());
+      // System.out.println(confidential.toString());
+      // System.out.println(annotationTypeName.toString());
+      // System.out.println(isFilteredAnnotation);
 
       return !isFilteredAnnotation;
     };
   };
-//
-//  /**
-//   * The annotation filter.
-//   * 
-//   * @return The annotation filter.
-//   */
-//  @Override
-//  protected Predicate<AnnotationMirror> annotationMirrorFilter() {
-//    return annotation -> {
-//
-//      Element annotationTypeElement = annotation
-//          .getAnnotationType()
-//          .asElement();
-//
-//      String annotationSimpleName = annotationTypeElement
-//          .getSimpleName()
-//          .toString();
-//
-//      String requiresConfidentiality = RequiresConfidentiality.class.getSimpleName();
-//      String confidential = Confidential.class.getSimpleName();
-//
-//      boolean shouldFilter =
-//          !annotationSimpleName.equals(requiresConfidentiality)
-//          && !annotationSimpleName.equals(confidential);
-//
-//      return shouldFilter;
-//    };
-//  };
 
   /**
    * The Encryption tool interface.
@@ -111,7 +84,7 @@ public class SecuredPojoGenerator
    * The Encryption tool class.
    */
   private static final Class<?> EncryptionToolImplementation = AesToolImpl.class;
-  
+
   /**
    * The type of exception thrown by the encryption tool.
    */
@@ -120,7 +93,8 @@ public class SecuredPojoGenerator
   /**
    * The type of exception thrown by the encryption tool.
    */
-  private static final Class<? extends Exception> SerializerException = BinarySerializerException.class;
+  private static final Class<? extends Exception> SerializerException =
+      BinarySerializerException.class;
 
   /**
    * Gets the suffix to append to specific generated members.
@@ -191,7 +165,9 @@ public class SecuredPojoGenerator
       VariableElement field) {
 
     if (field.getAnnotation(Confidential.class) != null) {
-      this.constructConfidentialitySupportMembers(typeSpecBuilder, field);
+      this.constructConfidentialitySupportMembers(
+          typeSpecBuilder,
+          field);
     } else {
       super.processField(typeSpecBuilder, field);
     }
@@ -213,12 +189,82 @@ public class SecuredPojoGenerator
     String securedFieldName = this.constructSecuredFieldName(fieldName);
 
     typeSpecBuilder
-        .addField(this.constructConfidentialFieldSpec(field))
+        // .addField(this.constructConfidentialFieldSpec(field))
         .addField(this.constructSecuredFieldSpec(field, securedFieldName))
-        .addMethod(this.constructBasicGetterSpecForFieldName(securedFieldName, TypeName.get(String.class)))
-        .addMethod(this.constructBasicSetterSpecForFieldName(securedFieldName, TypeName.get(String.class)))
+        .addMethod(this.constructGetterMethodCapableOfDecryption(field))
+        .addMethod(this.constructBasicSetterSpecForFieldName(
+            securedFieldName,
+            TypeName.get(String.class)))
         .addMethod(this.constructGetterForSecuredField(field))
         .addMethod(this.constructSetterForSecuredField(field));
+  }
+
+  protected MethodSpec constructGetterMethodCapableOfDecryption(VariableElement field) {
+    String fieldName = field.getSimpleName().toString();
+
+    Iterable<Modifier> modifiers = Arrays.asList(new Modifier[] {
+        Modifier.PUBLIC,
+    });
+
+    Iterable<? extends TypeName> exceptionsThrown = Arrays.asList(
+        TypeName.get(EncryptionToolException),
+        TypeName.get(SerializerException));
+
+    return this.constructMethodSpec(
+        this.constructBasicGetterJavadoc(fieldName),
+        this.determineGetterNameForFieldName(fieldName),
+        modifiers,
+        TypeName.get(field.asType()),
+        (Iterable<AnnotationSpec>) null,
+        exceptionsThrown,
+        (Iterable<ParameterSpec>) null,
+        this.constructGetterMethodCapableOfDecryptionBody(
+            fieldName,
+            TypeName.get(field.asType())));
+  }
+  
+  protected CodeBlock constructGetterMethodCapableOfDecryptionBody(
+      String fieldName,
+      TypeName fieldTypeName) {
+    String encryptionToolFieldName = this.constructEncryptionToolFieldName();
+    String encryptionToolSetterName = this.determineSetterNameForFieldName(encryptionToolFieldName);
+
+    String securedFieldName = this.constructSecuredFieldName(fieldName);
+
+    String illegalStateExceptionMessage = "The passphrase provider has not been set.";
+    String binaryObjectName = "binaryObject";
+    String passphraseName = "passphrase";
+
+    return CodeBlock.builder()
+        .add(
+            "if (this.$L == null) {\n  throw new IllegalStateException(\"$L\");\n}\n\n",
+            PASSPHRASE_PROVIDER_FIELD_NAME,
+            illegalStateExceptionMessage)
+        .add(
+            "if (this.$L == null) {\n  this.$L(new $T());\n}\n\n",
+            encryptionToolFieldName,
+            encryptionToolSetterName,
+            EncryptionToolImplementation)
+        .addStatement(
+            "String $L = this.$L.getPassphrase()",
+            passphraseName,
+            PASSPHRASE_PROVIDER_FIELD_NAME)
+        .addStatement(
+            "byte[] $L = this.$L.decrypt(\nthis.$L.decodeObject(this.$L),\n$L)",
+            binaryObjectName,
+            encryptionToolFieldName,
+            encryptionToolFieldName,
+            securedFieldName,
+            passphraseName)
+        .addStatement(
+            "$L = null",
+            passphraseName)
+        .addStatement(
+            "return ($T) $T.deserializeObject($L)",
+            fieldTypeName,
+            BinarySerializer.class,
+            binaryObjectName)
+        .build();
   }
 
   /**
@@ -238,7 +284,7 @@ public class SecuredPojoGenerator
     Iterable<? extends TypeName> exceptionsThrown = Arrays.asList(
         TypeName.get(EncryptionToolException),
         TypeName.get(SerializerException));
-    
+
     return this.constructMethodSpec(
         this.constructBasicSetterJavadoc(fieldName),
         this.determineSetterNameForFieldName(fieldName),
@@ -265,8 +311,7 @@ public class SecuredPojoGenerator
     String binaryObjectName = "binaryObject";
     String passphraseName = "passphrase";
 
-    return this
-        .constructBasicSetterMethodBodyBuilder(fieldName)
+    return CodeBlock.builder()
         .add(
             "if (this.$L == null) {\n  throw new IllegalStateException(\"$L\");\n}\n\n",
             PASSPHRASE_PROVIDER_FIELD_NAME,
@@ -286,8 +331,10 @@ public class SecuredPojoGenerator
             passphraseName,
             PASSPHRASE_PROVIDER_FIELD_NAME)
         .addStatement(
-            "this.$L = this.aesTool.encodeObject(\nthis.aesTool.encrypt($L, $L))",
+            "this.$L = this.$L.encodeObject(\nthis.$L.encrypt($L, $L))",
             this.constructSecuredFieldName(fieldName),
+            encryptionToolFieldName,
+            encryptionToolFieldName,
             binaryObjectName,
             passphraseName)
         .addStatement(
@@ -306,19 +353,21 @@ public class SecuredPojoGenerator
   protected MethodSpec constructGetterForSecuredField(VariableElement field) {
     String fieldName = field.getSimpleName().toString();
 
+    String securedFieldName = this.constructSecuredFieldName(fieldName);
+
     Iterable<Modifier> modifiers = Arrays.asList(new Modifier[] {
         Modifier.PUBLIC,
     });
 
     return this.constructMethodSpec(
-        this.constructBasicGetterJavadoc(fieldName),
-        this.determineGetterNameForFieldName(fieldName),
+        this.constructBasicGetterJavadoc(securedFieldName),
+        this.determineGetterNameForFieldName(securedFieldName),
         modifiers,
-        TypeName.get(field.asType()),
+        TypeName.get(String.class),
         (Iterable<AnnotationSpec>) null,
         (Iterable<? extends TypeName>) null,
         (Iterable<ParameterSpec>) null,
-        this.constructBasicGetterMethodBody(fieldName));
+        this.constructBasicGetterMethodBody(securedFieldName));
   }
 
   /**
@@ -336,9 +385,9 @@ public class SecuredPojoGenerator
     List<Modifier> fieldModifiers = new ArrayList<Modifier>(field.getModifiers());
 
     return FieldSpec.builder(
-            String.class,
-            securedFieldName,
-            fieldModifiers.toArray(new Modifier[fieldModifiers.size()]))
+        String.class,
+        securedFieldName,
+        fieldModifiers.toArray(new Modifier[fieldModifiers.size()]))
         .addAnnotations(this.copyAnnotations(field))
         .build();
   }
@@ -359,9 +408,9 @@ public class SecuredPojoGenerator
     fieldModifiers.add(Modifier.TRANSIENT);
 
     return FieldSpec.builder(
-            TypeName.get(field.asType()),
-            field.getSimpleName().toString(),
-            fieldModifiers.toArray(new Modifier[fieldModifiers.size()]))
+        TypeName.get(field.asType()),
+        field.getSimpleName().toString(),
+        fieldModifiers.toArray(new Modifier[fieldModifiers.size()]))
         .addAnnotations(Arrays.asList(AnnotationSpec.builder(Transient.class).build()))
         .build();
   }
@@ -376,7 +425,7 @@ public class SecuredPojoGenerator
         PASSPHRASE_PROVIDER_FIELD_NAME,
         TypeName.get(PassphraseProvider.class));
   }
-  
+
   /**
    * Creates the encryption tool field.
    * 
@@ -399,11 +448,11 @@ public class SecuredPojoGenerator
   private FieldSpec constructTransientFieldSpec(
       String fieldName,
       TypeName fieldType) {
-    
+
     return this.constructField(
         fieldName,
         fieldType,
-        new Modifier[] { Modifier.PRIVATE, Modifier.TRANSIENT },
+        new Modifier[] {Modifier.PRIVATE, Modifier.TRANSIENT},
         Arrays.asList(AnnotationSpec.builder(Transient.class).build()));
   }
 
